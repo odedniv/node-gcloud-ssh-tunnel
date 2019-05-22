@@ -1,18 +1,19 @@
 {
   "name": "gcloud-ssh-tunnel",
-  "version": "1.0.0",
-  "description": "Create SSH tunnels to Google Cloud compute instances.",
+  "version": "1.0.1",
+  "description": "Create secure IAM-controlled connections between Google Cloud resources and VM instances!",
+  "keywords": ["google", "google cloud", "google cloud platform", "cloud", "iam", "ssh"],
   "main": "index.js",
   "author": "Oded Niv",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/odedniv/gcloud-ssh-tunnel.git"
+    "url": "git+ssh://git@github.com/odedniv/node-gcloud-ssh-tunnel.git"
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/odedniv/gcloud-ssh-tunnel/issues"
+    "url": "https://github.com/odedniv/node-gcloud-ssh-tunnel/issues"
   },
-  "homepage": "https://github.com/odedniv/gcloud-ssh-tunnel#readme",
+  "homepage": "https://github.com/odedniv/node-gcloud-ssh-tunnel#readme",
   "dependencies": {
     "get-port": "^5.0.0"
   }
