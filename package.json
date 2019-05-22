@@ -1,0 +1,19 @@
+{
+  "name": "gcloud-ssh-tunnel",
+  "version": "1.0.0",
+  "description": "Create SSH tunnels to Google Cloud compute instances.",
+  "main": "index.js",
+  "author": "Oded Niv",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/odedniv/gcloud-ssh-tunnel.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/odedniv/gcloud-ssh-tunnel/issues"
+  },
+  "homepage": "https://github.com/odedniv/gcloud-ssh-tunnel#readme",
+  "dependencies": {
+    "get-port": "^5.0.0"
+  }
+}
