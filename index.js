@@ -1,5 +1,6 @@
 'use strict';
 
+const GcloudCli = require('gcloud-cli');
 const { spawn } = require('child_process');
 const getPort = require('get-port');
 
@@ -52,7 +53,7 @@ class GcloudSshTunnel {
     if (this.zone) args.push('--zone', this.zone);
     if (this.sshKeyFile) args.push('--ssh-key-file', this.sshKeyFile);
 
-    this.process = spawn('gcloud', args);
+    this.process = spawn(await GcloudCli.getPath(), args);
   }
 
   monitor() {
