@@ -30,15 +30,11 @@ Then use it:
 const gcloudSshTunnel = require('gcloud-ssh-tunnel');
 
 let tunnel = gcloudSshTunnel({
-  name: "instance-name",
-  project: "project-name", // optional, will use gcloud default if not supplied
-  zone: "instance-region-and-zone", // optional, will use gcloud default if not supplied
+  host: "host-or-ip",
   remotePort: 1234,
   localPort: 1234, // optional, will find a free port if not supplied
-
-  // optional, will use gcloud default and possibly create a new SSH key if it doesn't exist
-  // see notes below!
-  sshKeyFile: `${process.env.HOME}/.ssh/google_compute_engine`,
+  // optional, path to service account's keyfile
+  keyFilename: "path/to/service-account-keyfile.json",
 });
 
 // the return value is actually a promise (that can also be awaited)
@@ -46,18 +42,5 @@ tunnel.then(port => {
   // tunnel is now ready to be connected to in localhost and with the given port!
 });
 // 
-tunnel.end(); // gracefully closes the tunnel (will be left open until all connections were closed)
-tunnel.destroy(); // kills the tunnel without waiting for connections
-
-// mostly unnecessary since the child process is unrefed as soon as the tunnel is open (promise has resolved),
-// but can be used if you want to allow the NodeJS process to exit while waiting for the tunnel to open
-tunnel.unref();
+tunnel.close(); // closes the tunner and ends all client connections
 ```
-
-### Notes about SSH key file
-
-* If the supplied or default key file doesn't exist, a new one will be created and used.
-* If a new SSH key is created, it will not be encrypted (empty passphrase).
-  Depends on the situation this may be considered insecure (e.g if you do it in a stealable unencrypted laptop).
-* If the given or default SSH key *is* encrypted with a passphrase, you must add the key to ssh-agent first!
-  (otherwise you'll get a passphrase prompt in the middle of the execution)

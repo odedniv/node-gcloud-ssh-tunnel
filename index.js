@@ -1,96 +1,128 @@
 'use strict';
 
-const GcloudCli = require('gcloud-cli');
-const { spawn } = require('child_process');
-const getPort = require('get-port');
+const { OsLoginServiceClient } = require('@google-cloud/os-login');
+const ssh = require('ssh2');
+const net = require('net');
+const sshpk = require('sshpk');
 
 class GcloudSshTunnel {
-  constructor({ name, project, zone, remotePort, localPort, sshKeyFile }) {
-    this.name = name;
-    this.project = project;
-    this.zone = zone;
+  constructor({ host, remotePort, localPort, keyFilename }) {
+    this.host = host;
     this.remotePort = remotePort;
     this.localPort = localPort;
-    this.sshKeyFile = sshKeyFile;
+    this.osLoginServiceClient = new OsLoginServiceClient({ keyFilename });
+
+    this.connections = [];
 
     this.result = {
-      end: () => this.process && this.process.stdin.end(),
-      destroy: () => this.process && this.process.kill(),
-      unref: () => this.process && this.process.unref(),
+      close: () => this.close(),
     };
   }
 
   start() {
-    let promise = new Promise(async (resolve, reject) => {
-      while (true) {
-        let localPort = this.localPort || await getPort();
-        await this.spawn(localPort);
-        try {
-          await this.monitor();
-        } catch (err) {
-          if (err.message && err.message.includes('Address already in use') && !this.localPort) {
-            // race condition on chose localPort, retrying
-            continue;
-          }
-          reject(err);
-          break;
-        }
-        resolve(localPort);
-        break;
-      }
-    });
+    let promise = this.promise();
     Object.assign(promise, this.result);
     return promise;
   }
 
-  async spawn(localPort) {
-    let args = [
-      'compute', 'ssh', this.name, '--quiet',
-      '--ssh-flag', `-L ${localPort}:localhost:${this.remotePort}`,
-      '--command', 'echo READY && cat',
-    ];
-    if (this.project) args.push('--project', this.project);
-    if (this.zone) args.push('--zone', this.zone);
-    if (this.sshKeyFile) args.push('--ssh-key-file', this.sshKeyFile);
-
-    this.process = spawn(await GcloudCli.getPath(), args);
+  close() {
+    if (this.client) this.client.end();
+    if (this.server) this.server.close();
+    for (let connection of this.connections) {
+      connection.end().unref();
+    }
   }
 
-  monitor() {
-    return new Promise((resolve, reject) => {
-      let stdout = "";
-      let stderr = "";
+  async promise() {
+    await this.osLogin();
+    try {
+      await this.ssh();
+      await this.listen();
+    } catch (err) {
+      this.close();
+      throw err;
+    } finally {
+      await this.osLogout();
+    }
+    return this.localPort;
+  }
 
-      this.process
-        .on('error', err => {
-          delete this.process;
-          reject(err);
-        })
-        .on('exit', (code, signal) => {
-          delete this.process;
-          // doesn't do anything if the promise was already resolved or rejected
-          reject(new Error(`gcloud exited with: ${code || signal}\n${stderr}`));
-        });
-
-      // gather STDOUT and STDERR
-      this.process.stdout.on('data', data => {
-        stdout += data;
-        if (stdout.includes('READY')) {
-          // echo reached, tunnel is ready
-          this.process.unref();
-          resolve();
-        }
-      }).unref();
-      this.process.stderr.on('data', data => {
-        stderr += data;
-        if (stderr.includes('Address already in use')) {
-          // tunnel failed, ending
-          this.process.unref();
-          this.process.stdin.end();
-          reject(new Error(`ssh tunnel failed with: ${stderr}`));
-        }
-      }).unref();
+  async osLogin() {
+    let response = await this.osLoginServiceClient.importSshPublicKey({
+      parent: `users/${await this.user}`,
+      sshPublicKey: { key: this.key.toPublic().toString() },
     });
+    this.loginProfile = response[0].loginProfile;
+  }
+
+  async osLogout() {
+    let fingerprint = Object.keys(this.loginProfile.sshPublicKeys).find(
+      fingerprint => this.loginProfile.sshPublicKeys[fingerprint].key === this.key.toPublic().toString()
+    );
+    if (fingerprint) {
+      await this.osLoginServiceClient.deleteSshPublicKey({
+        name: `users/${await this.user}/sshPublicKeys/${fingerprint}`
+      });
+    }
+  }
+
+  listen() {
+    return new Promise((resolve, reject) => {
+      this.server = net.createServer().unref();
+      this.server
+        .on('listening', () => {
+          this.localPort = this.server.address().port;
+          resolve();
+        })
+        .on('error', reject)
+        .on('connection', connection => {
+          this.connections.push(connection);
+          connection.on('close', () => {
+            this.connections.splice(this.connections.indexOf(connection), 1)
+          });
+          this.client.forwardOut('localhost', this.remotePort, 'localhost', this.remotePort, (err, stream) => {
+            if (err) {
+              connection.end();
+              return;
+            }
+            connection.pipe(stream).pipe(connection);
+          });
+        });
+      this.server.listen(this.localPort, 'localhost');
+    });
+  }
+
+  ssh() {
+    return new Promise((resolve, reject) => {
+      this.client = new ssh();
+      this.client
+        .on('ready', resolve)
+        .on('error', reject)
+        .on('close', () => this.close());
+      this.client.connect({
+        host: this.host,
+        username: this.loginProfile.posixAccounts[0].username,
+        privateKey: this.key.toString(),
+      });
+      this.client._sock.unref();
+    });
+  }
+
+  get user() {
+    if (!this._user) {
+      this._user = new Promise(async resolve => {
+        let credentials = await this.osLoginServiceClient.auth.getCredentials();
+        resolve(credentials.client_email);
+      });
+    }
+    return this._user;
+  }
+
+  get key() {
+    if (!this._key) {
+      this._key = sshpk.generatePrivateKey('ecdsa');
+    }
+    return this._key;
   }
 }
 
