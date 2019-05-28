@@ -1,16 +1,20 @@
 'use strict';
 
+const Compute = require('@google-cloud/compute');
 const { OsLoginServiceClient } = require('@google-cloud/os-login');
 const ssh = require('ssh2');
 const net = require('net');
 const sshpk = require('sshpk');
 
 class GcloudSshTunnel {
-  constructor({ host, remotePort, localPort, keyFilename }) {
-    this.host = host;
+  constructor({ instance, host, remotePort, localPort, projectId, keyFilename }) {
+    this.instance = instance;
+    this._host = host;
     this.remotePort = remotePort;
     this.localPort = localPort;
-    this.osLoginServiceClient = new OsLoginServiceClient({ keyFilename });
+
+    this.computeClient = new Compute({ projectId, keyFilename });
+    this.osLoginServiceClient = new OsLoginServiceClient({ projectId, keyFilename });
 
     this.connections = [];
 
@@ -93,19 +97,37 @@ class GcloudSshTunnel {
   }
 
   ssh() {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       this.client = new ssh();
       this.client
         .on('ready', resolve)
         .on('error', reject)
         .on('close', () => this.close());
       this.client.connect({
-        host: this.host,
+        host: await this.host,
         username: this.loginProfile.posixAccounts[0].username,
         privateKey: this.key.toString(),
       });
       this.client._sock.unref();
     });
+  }
+
+  get host() {
+    if (!this._host) {
+      this._host = this.computeClient
+        .zone(this.instance.zone)
+        .vm(this.instance.name)
+        .get()
+        .then(response => {
+          // find the first public IP
+          for (let networkInterface of response[1].networkInterfaces) {
+            for (let accessConfig of networkInterface.accessConfigs) {
+              if (accessConfig.natIP) return accessConfig.natIP;
+            }
+          }
+        });
+    }
+    return this._host;
   }
 
   get user() {

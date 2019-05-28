@@ -30,11 +30,18 @@ Then use it:
 const gcloudSshTunnel = require('gcloud-ssh-tunnel');
 
 let tunnel = gcloudSshTunnel({
+  // either instance or host must be supplied
+  instance: {
+    zone: "gcp-region-with-zone", // e.g. us-east1-d
+    name: "instance-name",
+  },
   host: "host-or-ip",
+
   remotePort: 1234,
   localPort: 1234, // optional, will find a free port if not supplied
-  // optional, path to service account's keyfile
-  keyFilename: "path/to/service-account-keyfile.json",
+
+  projectId, // optional, project of the instance
+  keyFilename: "path/to/service-account-keyfile.json", // optional, path to service account's keyfile
 });
 
 // the return value is actually a promise (that can also be awaited)
