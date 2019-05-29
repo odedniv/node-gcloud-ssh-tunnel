@@ -5,6 +5,10 @@ const { OsLoginServiceClient } = require('@google-cloud/os-login');
 const ssh = require('ssh2');
 const net = require('net');
 const sshpk = require('sshpk');
+const AsyncLock = require('async-lock');
+
+// it seems the SSH keys APIs in Google are not thread-safe
+const sshPublicKeysLock = new AsyncLock();
 
 class GcloudSshTunnel {
   constructor({ instance, host, remotePort, localPort, projectId, keyFilename }) {
@@ -52,11 +56,13 @@ class GcloudSshTunnel {
   }
 
   async osLogin() {
-    let response = await this.osLoginServiceClient.importSshPublicKey({
-      parent: `users/${await this.user}`,
-      sshPublicKey: { key: this.key.toPublic().toString() },
+    await sshPublicKeysLock.acquire('key', async () => {
+      let response = await this.osLoginServiceClient.importSshPublicKey({
+        parent: `users/${await this.user}`,
+        sshPublicKey: { key: this.key.toPublic().toString() },
+      });
+      this.loginProfile = response[0].loginProfile;
     });
-    this.loginProfile = response[0].loginProfile;
   }
 
   async osLogout() {
@@ -64,8 +70,10 @@ class GcloudSshTunnel {
       fingerprint => this.loginProfile.sshPublicKeys[fingerprint].key === this.key.toPublic().toString()
     );
     if (fingerprint) {
-      await this.osLoginServiceClient.deleteSshPublicKey({
-        name: `users/${await this.user}/sshPublicKeys/${fingerprint}`
+      await sshPublicKeysLock.acquire('key', async () => {
+        await this.osLoginServiceClient.deleteSshPublicKey({
+          name: `users/${await this.user}/sshPublicKeys/${fingerprint}`
+        });
       });
     }
   }
