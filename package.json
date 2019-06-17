@@ -1,6 +1,6 @@
 {
   "name": "gcloud-ssh-tunnel",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Create secure IAM-controlled connections between Google Cloud resources and VM instances!",
   "keywords": [
     "google",

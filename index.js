@@ -45,12 +45,14 @@ class GcloudSshTunnel {
     await this.osLogin();
     try {
       await this.ssh();
+    } finally {
+      await this.osLogout();
+    }
+    try {
       await this.listen();
     } catch (err) {
       this.close();
       throw err;
-    } finally {
-      await this.osLogout();
     }
     return this.localPort;
   }
@@ -58,8 +60,11 @@ class GcloudSshTunnel {
   async osLogin() {
     await sshPublicKeysLock.acquire('key', async () => {
       let response = await this.osLoginServiceClient.importSshPublicKey({
-        parent: `users/${await this.user}`,
-        sshPublicKey: { key: this.key.toPublic().toString() },
+        parent: this.osLoginServiceClient.userPath(await this.user),
+        sshPublicKey: {
+          key: this.key.toPublic().toString(),
+          expirationTimeUsec: ((Date.now() + 10 * 60 * 1000) * 1000).toString(), // 10 minutes
+        },
       });
       this.loginProfile = response[0].loginProfile;
     });
@@ -72,10 +77,26 @@ class GcloudSshTunnel {
     if (fingerprint) {
       await sshPublicKeysLock.acquire('key', async () => {
         await this.osLoginServiceClient.deleteSshPublicKey({
-          name: `users/${await this.user}/sshPublicKeys/${fingerprint}`
+          name: this.osLoginServiceClient.fingerprintPath(await this.user, fingerprint)
         });
       });
     }
+  }
+
+  ssh() {
+    return new Promise(async (resolve, reject) => {
+      this.client = new ssh();
+      this.client
+        .on('ready', resolve)
+        .on('error', reject)
+        .on('close', () => this.close());
+      this.client.connect({
+        host: await this.host,
+        username: this.loginProfile.posixAccounts[0].username,
+        privateKey: this.key.toString(),
+      });
+      this.client._sock.unref();
+    });
   }
 
   listen() {
@@ -101,22 +122,6 @@ class GcloudSshTunnel {
           });
         });
       this.server.listen(this.localPort, 'localhost');
-    });
-  }
-
-  ssh() {
-    return new Promise(async (resolve, reject) => {
-      this.client = new ssh();
-      this.client
-        .on('ready', resolve)
-        .on('error', reject)
-        .on('close', () => this.close());
-      this.client.connect({
-        host: await this.host,
-        username: this.loginProfile.posixAccounts[0].username,
-        privateKey: this.key.toString(),
-      });
-      this.client._sock.unref();
     });
   }
 
