@@ -1,6 +1,6 @@
 {
   "name": "gcloud-ssh-tunnel",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Create secure IAM-controlled connections between Google Cloud resources and VM instances!",
   "keywords": [
     "google",
@@ -24,10 +24,6 @@
   },
   "homepage": "https://github.com/odedniv/node-gcloud-ssh-tunnel#readme",
   "dependencies": {
-    "@google-cloud/compute": "^1.0.1",
-    "@google-cloud/os-login": "^1.0.0",
-    "async-lock": "^1.2.0",
-    "ssh2": "^0.8.4",
-    "sshpk": "^1.16.1"
+    "gcloud-ssh": "^1.0.1"
   }
 }

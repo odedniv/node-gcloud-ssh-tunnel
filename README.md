@@ -44,10 +44,10 @@ let tunnel = gcloudSshTunnel({
   keyFilename: "path/to/service-account-keyfile.json", // optional, path to service account's keyfile
 });
 
-// the return value is actually a promise (that can also be awaited)
+// the return value is a promise (that can also be awaited)
 tunnel.then(port => {
   // tunnel is now ready to be connected to in localhost and with the given port!
 });
 // 
-tunnel.close(); // closes the tunner and ends all client connections
+tunnel.close(); // closes the tunnel and ends all client connections
 ```
