@@ -1,24 +1,13 @@
 'use strict';
 
-const Compute = require('@google-cloud/compute');
-const { OsLoginServiceClient } = require('@google-cloud/os-login');
-const ssh = require('ssh2');
+const gcloudSsh = require('gcloud-ssh');
 const net = require('net');
-const sshpk = require('sshpk');
-const AsyncLock = require('async-lock');
-
-// it seems the SSH keys APIs in Google are not thread-safe
-const sshPublicKeysLock = new AsyncLock();
 
 class GcloudSshTunnel {
-  constructor({ instance, host, remotePort, localPort, projectId, keyFilename }) {
-    this.instance = instance;
-    this._host = host;
+  constructor({ remotePort, localPort, ...sshOptions }) {
     this.remotePort = remotePort;
     this.localPort = localPort;
-
-    this.computeClient = new Compute({ projectId, keyFilename });
-    this.osLoginServiceClient = new OsLoginServiceClient({ projectId, keyFilename });
+    this.sshOptions = sshOptions;
 
     this.connections = [];
 
@@ -34,7 +23,7 @@ class GcloudSshTunnel {
   }
 
   close() {
-    if (this.client) this.client.end();
+    if (this.clientPromise) this.clientPromise.end();
     if (this.server) this.server.close();
     for (let connection of this.connections) {
       connection.end().unref();
@@ -42,61 +31,15 @@ class GcloudSshTunnel {
   }
 
   async promise() {
-    await this.osLogin();
-    try {
-      await this.ssh();
-    } finally {
-      await this.osLogout();
-    }
+    this.clientPromise = gcloudSsh(this.sshOptions);
+    this.client = await this.clientPromise;
     try {
       await this.listen();
     } catch (err) {
-      this.close();
+      this.client.end();
       throw err;
     }
     return this.localPort;
-  }
-
-  async osLogin() {
-    await sshPublicKeysLock.acquire('key', async () => {
-      let response = await this.osLoginServiceClient.importSshPublicKey({
-        parent: this.osLoginServiceClient.userPath(await this.user),
-        sshPublicKey: {
-          key: this.key.toPublic().toString(),
-          expirationTimeUsec: ((Date.now() + 10 * 60 * 1000) * 1000).toString(), // 10 minutes
-        },
-      });
-      this.loginProfile = response[0].loginProfile;
-    });
-  }
-
-  async osLogout() {
-    let fingerprint = Object.keys(this.loginProfile.sshPublicKeys).find(
-      fingerprint => this.loginProfile.sshPublicKeys[fingerprint].key === this.key.toPublic().toString()
-    );
-    if (fingerprint) {
-      await sshPublicKeysLock.acquire('key', async () => {
-        await this.osLoginServiceClient.deleteSshPublicKey({
-          name: this.osLoginServiceClient.fingerprintPath(await this.user, fingerprint)
-        });
-      });
-    }
-  }
-
-  ssh() {
-    return new Promise(async (resolve, reject) => {
-      this.client = new ssh();
-      this.client
-        .on('ready', resolve)
-        .on('error', reject)
-        .on('close', () => this.close());
-      this.client.connect({
-        host: await this.host,
-        username: this.loginProfile.posixAccounts[0].username,
-        privateKey: this.key.toString(),
-      });
-      this.client._sock.unref();
-    });
   }
 
   listen() {
@@ -123,41 +66,6 @@ class GcloudSshTunnel {
         });
       this.server.listen(this.localPort, 'localhost');
     });
-  }
-
-  get host() {
-    if (!this._host) {
-      this._host = this.computeClient
-        .zone(this.instance.zone)
-        .vm(this.instance.name)
-        .get()
-        .then(response => {
-          // find the first public IP
-          for (let networkInterface of response[1].networkInterfaces) {
-            for (let accessConfig of networkInterface.accessConfigs) {
-              if (accessConfig.natIP) return accessConfig.natIP;
-            }
-          }
-        });
-    }
-    return this._host;
-  }
-
-  get user() {
-    if (!this._user) {
-      this._user = new Promise(async resolve => {
-        let credentials = await this.osLoginServiceClient.auth.getCredentials();
-        resolve(credentials.client_email);
-      });
-    }
-    return this._user;
-  }
-
-  get key() {
-    if (!this._key) {
-      this._key = sshpk.generatePrivateKey('ecdsa');
-    }
-    return this._key;
   }
 }
 
