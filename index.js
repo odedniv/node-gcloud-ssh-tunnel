@@ -31,15 +31,25 @@ class GcloudSshTunnel {
   }
 
   async promise() {
-    this.clientPromise = gcloudSsh(this.sshOptions);
-    this.client = await this.clientPromise;
+    await this.ssh();
     try {
       await this.listen();
     } catch (err) {
       this.client.end();
       throw err;
     }
-    return this.localPort;
+    return {
+      port: this.localPort,
+      client: this.client,
+      server: this.server,
+      close: () => this.close(),
+    };
+  }
+
+  async ssh() {
+    this.clientPromise = gcloudSsh(this.sshOptions);
+    this.client = await this.clientPromise;
+    this.client.on('close', () => this.close());
   }
 
   listen() {
@@ -50,7 +60,10 @@ class GcloudSshTunnel {
           this.localPort = this.server.address().port;
           resolve();
         })
-        .on('error', reject)
+        .on('error', err => {
+          this.close();
+          reject(err);
+        })
         .on('connection', connection => {
           this.connections.push(connection);
           connection.on('close', () => {

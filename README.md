@@ -45,8 +45,11 @@ let tunnel = gcloudSshTunnel({
 });
 
 // the return value is a promise (that can also be awaited)
-tunnel.then(port => {
-  // tunnel is now ready to be connected to in localhost and with the given port!
+tunnel.then(({ port, client, server, close }) => {
+  // port: local port you can connect to
+  // client: the SSH client (see ssh2)
+  // server: the local listener that forwards connections to the SSH (see Net::Server)
+  // close: same as tunnel.close(), closes the client, server, and all connections
 });
 // 
 tunnel.close(); // closes the tunnel and ends all client connections
